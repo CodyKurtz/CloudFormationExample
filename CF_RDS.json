@@ -1,0 +1,211 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "RDS CF Template",
+    "Parameters": {
+        "ProjectName": {
+            "Description": "Project Name for CF Template",
+            "Type": "String",
+            "AllowedPattern": "[a-zA-Z0-9]+",
+            "Default": "CodyKurtz"
+        },
+        "InstanceType": {
+            "Description": "RDS instance type.",
+            "Type": "String",
+            "Default": "db.t2.micro"
+        },
+        "DBEngine": {
+            "Description": "RDS engine type.",
+            "Type": "String",
+            "Default": "oracle-ee"
+        },
+        "EngineVersion": {
+            "Description": "Version of the database engine, e.g. 11.2",
+            "Type": "String",
+            "Default": "11.2"
+        },
+        "MinorEngineVersion": {
+            "Description": "Version of the database engine, e.g. 0.4",
+            "Type": "String",
+            "Default": "0.4"
+        },
+        "OracleEngineVersion": {
+            "Description": "Version of the database engine, e.g. v1",
+            "Type": "String",
+            "Default": "v1"
+        },
+        "RDSUsername": {
+            "Description": "Master username for RDS instance.",
+            "Type": "String",
+            "Default": "Admin"
+        },
+        "RDSPassword": {
+            "Description": "Master password for RDS instance.",
+            "Type": "String",
+            "MinLength": "8",
+            "MaxLength": "41",
+            "ConstraintDescription": "Must contain between 8 to 41 characters",
+            "NoEcho": "true",
+            "Default": "Password"
+        },
+        "DBSnapshotIDToRestore": {
+            "Description": "Identifier of a database snapshot to restore (leave blank for a clean database)",
+            "Type": "String",
+            "Default": ""
+        }
+    },
+    "Conditions": {
+        "ShouldRestoreFromSnapshot": {
+            "Fn::Not": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "DBSnapshotIDToRestore"
+                        },
+                        ""
+                    ]
+                }
+            ]
+        }
+    },
+    "Resources": {
+        "RDSDBParameterGroup": {
+            "Type": "AWS::RDS::DBParameterGroup",
+            "Properties": {
+                "Description": "RDS Parameter Group",
+                "Family": {
+                    "Fn::Sub": "${DBEngine}-${EngineVersion}"
+                },
+                "Parameters": {
+                    "compatible": {
+                        "Fn::Sub": "${EngineVersion}.${MinorEngineVersion}"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "RDSDBParamGroup-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+        "RDSSubnetGroup": {
+            "Type": "AWS::RDS::DBSubnetGroup",
+            "Properties": {
+                "DBSubnetGroupDescription": "RDS Subnet Group",
+                "SubnetIds": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PrivateSubnetA"
+                        }
+                    },
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PrivateSubnetB"
+                        }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "RDSDBSubnetGroup-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+        "RDSInstance": {
+            "Type": "AWS::RDS::DBInstance",
+            "DeletionPolicy": "Delete",
+            "Properties": {
+                "AllocatedStorage": "10",
+                "BackupRetentionPeriod": "7",
+                "DBInstanceClass": {
+                    "Ref": "InstanceType"
+                },
+                "DBParameterGroupName": {
+                    "Ref": "RDSDBParameterGroup"
+                },
+                "DBSnapshotIdentifier": {
+                    "Fn::If": [
+                        "ShouldRestoreFromSnapshot",
+                        {
+                            "Ref": "DBSnapshotIDToRestore"
+                        },
+                        {
+                            "Ref": "AWS::NoValue"
+                        }
+                    ]
+                },
+                "DBInstanceIdentifier": {
+                    "Fn::Sub": "${ProjectName}-RDSInstance"
+                },
+                "DBSubnetGroupName": {
+                    "Ref": "RDSSubnetGroup"
+                },
+                "Engine": {
+                    "Ref": "DBEngine"
+                },
+                "EngineVersion": {
+                    "Fn::Sub": "${EngineVersion}.${MinorEngineVersion}.${OracleEngineVersion}"
+                },
+                "MasterUsername": {
+                    "Ref": "RDSUsername"
+                },
+                "MasterUserPassword": {
+                    "Ref": "RDSPassword"
+                },
+                "MultiAZ": "true",
+                "PreferredBackupWindow": "1:00-1:30",
+                "PreferredMaintenanceWindow": "tue:1:35-tue:2:05",
+                "VPCSecurityGroups": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-DataSG"
+                        }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "RDSInstance-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "RDSInstanceAddress": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "RDSInstance",
+                    "Endpoint.Address"
+                ]
+            },
+            "Description": "RDS HA endpoint address",
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${ProjectName}-RDSInstanceAddress"
+                }
+            }
+        },
+        "RDSPort": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "RDSInstance",
+                    "Endpoint.Port"
+                ]
+            },
+            "Description": "RDS HA port",
+            "Export": {
+                "Name": {
+                    "Fn::Sub": "${ProjectName}-RDSInstancePort"
+                }
+            }
+        }
+    }
+}

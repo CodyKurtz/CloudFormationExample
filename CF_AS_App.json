@@ -1,0 +1,281 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Auto scale app Template",
+    "Parameters": {
+        "ProjectName": {
+            "Description": "Project Name for CF Template",
+            "Type": "String",
+            "AllowedPattern": "[a-zA-Z0-9]+",
+            "Default": "CodyKurtz"
+        },
+        "SSHKeyName": {
+            "Description": "SSH keypair name for launching instances",
+            "Type": "String",
+            "Default": "_CodyKurtz"
+        },
+        "InstanceType": {
+            "Description": "EC2 instance type.",
+            "Type": "String",
+            "Default": "t2.micro"
+        },
+        "ImageId": {
+            "Description": "AMI ID to launch.",
+            "Type": "String",
+            "Default": "ami-d7b9a2b1"
+        },
+        "AutoScaleAlarmPeriod": {
+            "Description": "Number of seconds over which to collect CloudWatch metrics for autoscaling",
+            "Type": "Number",
+            "Default": "60"
+        },
+        "AutoScaleHighCPUThreshold": {
+            "Description": "CPU usage threshold which should trigger an autoscaling up action",
+            "Type": "Number",
+            "Default": "70"
+        },
+        "AutoScaleLowCPUThreshold": {
+            "Description": "CPU usage threshold which should trigger an autoscaling down action",
+            "Type": "Number",
+            "Default": "20"
+        }
+    },
+    "Resources": {
+        "LaunchConfigApp": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "AssociatePublicIpAddress": "false",
+                "ImageId": {
+                    "Ref": "ImageId"
+                },
+                "InstanceType": {
+                    "Ref": "InstanceType"
+                },
+                "KeyName": {
+                    "Ref": "SSHKeyName"
+                },
+                "SecurityGroups": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-BaseSG"
+                        }
+                    },
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-AppSG"
+                        }
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash \n",
+                                "yum install httpd -y \n",
+                                "echo 'AWS Instance ID: ' > /var/www/html/index.html \n",
+                                "curl http://169.254.169.254/latest/meta-data/instance-id >> /var/www/html/index.html\n",
+                                "sed -i 's/Listen 80/Listen 9000/g' /etc/httpd/conf/httpd.conf\n",
+                                "service httpd start \n"
+                            ]
+                        ]
+                    }
+                }
+            }
+        },
+        "AppASG": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "LaunchConfigurationName": {
+                    "Ref": "LaunchConfigApp"
+                },
+                "MaxSize": "2",
+                "MinSize": "2",
+                "TargetGroupARNs": [
+                    {
+                        "Ref": "ALBTargetGroupApp"
+                    }
+                ],
+                "HealthCheckType": "ELB",
+                "HealthCheckGracePeriod": "180",
+                "VPCZoneIdentifier": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PrivateSubnetA"
+                        }
+                    },
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PrivateSubnetB"
+                        }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "AppInstanceASG-${ProjectName}"
+                        },
+                        "PropagateAtLaunch": "True"
+                    }
+                ]
+            }
+        },
+        "AppLB": {
+            "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+            "Properties": {
+                "Scheme": "internal",
+                "Type": "application",
+                "LoadBalancerAttributes": [
+                    {
+                        "Key": "idle_timeout.timeout_seconds",
+                        "Value": "60"
+                    }
+                ],
+                "SecurityGroups": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-AppELBSG"
+                        }
+                    }
+                ],
+                "Subnets": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PrivateSubnetA"
+                        }
+                    },
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PrivateSubnetB"
+                        }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "AppELB-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+        "ALBListenerApp": {
+            "Type": "AWS::ElasticLoadBalancingV2::Listener",
+            "Properties": {
+                "DefaultActions": [
+                    {
+                        "Type": "forward",
+                        "TargetGroupArn": {
+                            "Ref": "ALBTargetGroupApp"
+                        }
+                    }
+                ],
+                "LoadBalancerArn": {
+                    "Ref": "AppLB"
+                },
+                "Port": "9000",
+                "Protocol": "HTTP"
+            }
+        },
+        "ALBTargetGroupApp": {
+            "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+            "Properties": {
+                "HealthCheckIntervalSeconds": "10",
+                "UnhealthyThresholdCount": "2",
+                "HealthCheckPath": "/",
+                "Name": "AppLBTarget",
+                "Port": 9000,
+                "Protocol": "HTTP",
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                }
+            }
+        },
+        "AppAlarmHigh": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmActions": [
+                    {
+                        "Ref": "AppScaleUpPolicy"
+                    }
+                ],
+                "AlarmDescription": "App autoscale: scale up alarm",
+                "ComparisonOperator": "GreaterThanThreshold",
+                "Dimensions": [
+                    {
+                        "Name": "AutoScalingGroupName",
+                        "Value": {
+                            "Ref": "AppASG"
+                        }
+                    }
+                ],
+                "EvaluationPeriods": "1",
+                "MetricName": "CPUUtilization",
+                "Namespace": "AWS/EC2",
+                "Period": {
+                    "Ref": "AutoScaleAlarmPeriod"
+                },
+                "Statistic": "Average",
+                "Threshold": {
+                    "Ref": "AutoScaleHighCPUThreshold"
+                }
+            }
+        },
+        "AppAlarmLow": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmActions": [
+                    {
+                        "Ref": "AppScaleDownPolicy"
+                    }
+                ],
+                "AlarmDescription": "App autoscale: scale down alarm",
+                "ComparisonOperator": "LessThanThreshold",
+                "Dimensions": [
+                    {
+                        "Name": "AutoScalingGroupName",
+                        "Value": {
+                            "Ref": "AppASG"
+                        }
+                    }
+                ],
+                "EvaluationPeriods": "1",
+                "MetricName": "CPUUtilization",
+                "Namespace": "AWS/EC2",
+                "Period": {
+                    "Ref": "AutoScaleAlarmPeriod"
+                },
+                "Statistic": "Average",
+                "Threshold": {
+                    "Ref": "AutoScaleLowCPUThreshold"
+                }
+            }
+        },
+        "AppScaleUpPolicy": {
+            "Type": "AWS::AutoScaling::ScalingPolicy",
+            "Properties": {
+                "AdjustmentType": "ChangeInCapacity",
+                "AutoScalingGroupName": {
+                    "Ref": "AppASG"
+                },
+                "Cooldown": "120",
+                "ScalingAdjustment": "1"
+            }
+        },
+        "AppScaleDownPolicy": {
+            "Type": "AWS::AutoScaling::ScalingPolicy",
+            "Properties": {
+                "AdjustmentType": "ChangeInCapacity",
+                "AutoScalingGroupName": {
+                    "Ref": "AppASG"
+                },
+                "Cooldown": "120",
+                "ScalingAdjustment": "-1"
+            }
+        }
+    },
+    "Outputs": {}
+}

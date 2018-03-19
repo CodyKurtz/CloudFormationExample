@@ -1,0 +1,83 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Auto scale bastion Template",
+    "Parameters": {
+        "ProjectName": {
+            "Description": "Project Name for CF Template",
+            "Type": "String",
+            "AllowedPattern": "[a-zA-Z0-9]+",
+            "Default": "CodyKurtz"
+        },
+        "SSHKeyName": {
+            "Description": "SSH keypair name for launching instances",
+            "Type": "String",
+            "Default": "_CodyKurtz"
+        },
+        "InstanceType": {
+            "Description": "EC2 instance type.",
+            "Type": "String",
+            "Default": "t2.micro"
+        },
+        "ImageId": {
+            "Description": "AMI ID to launch.",
+            "Type": "String",
+            "Default": "ami-d7b9a2b1"
+        }
+    },
+    "Resources": {
+        "LaunchConfigBastion": {
+            "Type": "AWS::AutoScaling::LaunchConfiguration",
+            "Properties": {
+                "ImageId": {
+                    "Ref": "ImageId"
+                },
+                "InstanceType": {
+                    "Ref": "InstanceType"
+                },
+                "KeyName": {
+                    "Ref": "SSHKeyName"
+                },
+                "SecurityGroups": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-BastionSG"
+                        }
+                    }
+                ],
+                "AssociatePublicIpAddress": "true"
+            }
+        },
+        "AutoScaleBastion": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "LaunchConfigurationName": {
+                    "Ref": "LaunchConfigBastion"
+                },
+                "MaxSize": "2",
+                "MinSize": "2",
+                "VPCZoneIdentifier": [
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PubSubnetA"
+                        }
+                    },
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-PubSubnetB"
+                        }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "BastionInstanceASG-${ProjectName}"
+                        },
+                        "PropagateAtLaunch": "True"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {}
+}

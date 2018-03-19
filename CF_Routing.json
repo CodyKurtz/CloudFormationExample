@@ -1,0 +1,97 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Routing CF Template",
+    "Parameters": {
+        "ProjectName": {
+            "Description": "Project Name for CF Template",
+            "Type": "String",
+            "AllowedPattern": "[a-zA-Z0-9]+",
+            "Default": "CodyKurtz"
+        }
+    },
+    "Resources": {
+        "NatGateway1": {
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+                "AllocationId": 
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-EIP1"
+                        }
+                    },
+                
+                "SubnetId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-PubSubnetA"
+                    }
+                }
+            }
+        },
+        "NatGateway2": {
+            "Type": "AWS::EC2::NatGateway",
+            "Properties": {
+                "AllocationId": 
+                    {
+                        "Fn::ImportValue": {
+                            "Fn::Sub": "${ProjectName}-EIP2"
+                        }
+                    },
+                
+                "SubnetId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-PubSubnetB"
+                    }
+                }
+            }
+        },
+        
+        "IGWRoute": {
+          "Type": "AWS::EC2::Route",
+          "Properties": {
+            "RouteTableId":  {
+                "Fn::ImportValue": {
+                    "Fn::Sub": "${ProjectName}-PublicRouteTableID"
+                }
+            },
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": {
+                "Fn::ImportValue": {
+                    "Fn::Sub": "${ProjectName}-IGWID"
+                }
+            }
+          }
+        },
+
+        "NATRoute1": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+              "RouteTableId":  {
+                  "Fn::ImportValue": {
+                      "Fn::Sub": "${ProjectName}-PrivateRouteTableID1"
+                  }
+              },
+              "DestinationCidrBlock": "0.0.0.0/0",
+              "NatGatewayId": { 
+                "Ref": "NatGateway1"
+              }
+            }
+          },
+
+          "NATRoute2": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+              "RouteTableId":  {
+                  "Fn::ImportValue": {
+                      "Fn::Sub": "${ProjectName}-PrivateRouteTableID2"
+                  }
+              },
+              "DestinationCidrBlock": "0.0.0.0/0",
+              "NatGatewayId": { 
+                "Ref": "NatGateway2"
+              }
+            }
+          }
+        
+    },  
+    "Outputs": {}
+}

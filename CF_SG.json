@@ -1,0 +1,333 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Security Group CF Template",
+    "Parameters": {
+        "ProjectName": {
+            "Description": "Project Name for CF Template",
+            "Type": "String",
+            "AllowedPattern": "[a-zA-Z0-9]+",
+            "Default": "CodyKurtz"
+        },
+        "WorkspacePublicIP": {
+            "Description": "AWS workspace public IP.",
+            "Type": "String",
+            "Default": "52.71.61.207/32"
+        }
+    },
+    "Resources": {
+        "BaseSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Base security group.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "22",
+                    "ToPort" : "22",
+                    "SourceSecurityGroupId" : { "Ref" : "BastionSG" }
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "BaseSecurityGroup-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "BastionSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for bastion host instances.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "22",
+                    "ToPort" : "22",
+                    "CidrIp": { "Ref" : "WorkspacePublicIP" }
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "BastionSecurityGroup-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "WebELBSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for web ELBs.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "80",
+                    "ToPort" : "80",
+                    "CidrIp": "0.0.0.0/0"
+                 }, 
+                 {
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "443",
+                    "ToPort" : "443",
+                    "CidrIp": "0.0.0.0/0"
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "WebELBSG-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "WebSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for web instances.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "80",
+                    "ToPort" : "80",
+                    "SourceSecurityGroupId" : { "Ref" : "WebELBSG" }
+                 }, 
+                 {
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "443",
+                    "ToPort" : "443",
+                    "SourceSecurityGroupId" : { "Ref" : "WebELBSG" }
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "WebSG-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "AppELBSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for app ELBs.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "9000",
+                    "ToPort" : "9000",
+                    "CidrIp": "10.10.10.32/27"
+                 }, 
+                 {
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "9000",
+                    "ToPort" : "9000",
+                    "CidrIp": "10.10.10.64/27"
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "AppELBSG-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "AppSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for app instances.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "9000",
+                    "ToPort" : "9000",
+                    "SourceSecurityGroupId" : { "Ref" : "AppELBSG" }
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "AppSG-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        },
+
+        "DataSG": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for RDS instances.",
+                "SecurityGroupIngress": [{
+                    "IpProtocol" : "tcp",
+                    "FromPort" : "1521",
+                    "ToPort" : "1521",
+                    "SourceSecurityGroupId" : { "Ref" : "AppSG" }
+                 }],
+                "SecurityGroupEgress" : [{
+                    "IpProtocol" : "-1",
+                    "CidrIp" : "0.0.0.0/0"
+                 }],
+                "VpcId": {
+                    "Fn::ImportValue": {
+                        "Fn::Sub": "${ProjectName}-VPCID"
+                    }
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Sub": "DataSG-${ProjectName}"
+                        }
+                    }
+                ]
+            }
+        }
+
+    },
+
+    "Outputs": {
+        "BaseSG": {
+            "Value": {
+              "Ref": "BaseSG"
+            },
+            "Description": "Base security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-BaseSG"
+              }
+            }
+          },
+
+          "BastionSG": {
+            "Value": {
+              "Ref": "BastionSG"
+            },
+            "Description": "Bastion security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-BastionSG"
+              }
+            }
+          },
+
+          "WebELBSG": {
+            "Value": {
+              "Ref": "WebELBSG"
+            },
+            "Description": "Web ELB security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-WebELBSG"
+              }
+            }
+          },
+
+          "WebSG": {
+            "Value": {
+              "Ref": "WebSG"
+            },
+            "Description": "Web instance security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-WebSG"
+              }
+            }
+          },
+
+          "AppELBSG": {
+            "Value": {
+              "Ref": "AppELBSG"
+            },
+            "Description": "App ELB security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-AppELBSG"
+              }
+            }
+          },
+
+          "AppSG": {
+            "Value": {
+              "Ref": "AppSG"
+            },
+            "Description": "App instance security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-AppSG"
+              }
+            }
+          },
+
+          "DataSG": {
+            "Value": {
+              "Ref": "DataSG"
+            },
+            "Description": "RDS instance security group",
+            "Export": {
+              "Name": {
+                "Fn::Sub": "${ProjectName}-DataSG"
+              }
+            }
+          }
+    }
+}
